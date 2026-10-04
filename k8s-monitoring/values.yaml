@@ -1,0 +1,184 @@
+cluster:
+  name: "local"
+
+global:
+  scrapeInterval: 60s
+  scrapeTimeout: 10s
+  scrapeClassicHistograms: true
+  scrapeNativeHistograms: false
+
+destinations:
+  otlp-gateway:
+    type: otlp
+    protocol: http
+    url: http://otel-collector.o11y.svc.cluster.local:4318
+    logs:
+      enabled: true
+    metrics:
+      enabled: true
+    traces: 
+      enabled: true
+    
+    sendingQueue:
+      enabled: true
+      blockOnOverflow: true
+      storage: otelcol.storage.file.otlp_gateway_queue_storage.handler
+      batch:
+        enabled: true
+        flushTimeout: 1s
+        sizer: items
+        minSize: 100
+        maxSize: 1000
+
+#
+# Features
+#
+clusterMetrics:
+  enabled: true
+  collector: alloy-metrics
+
+  kubelet:
+    enabled: true
+    # metricsTuning:
+    #   useDefaultAllowList: <boolean>      # Use the allow list for this metric source
+    #   useIntegrationAllowList: <boolean>  # Use the integration allow list for this metric source
+    #   includeMetrics: [<string>]          # Metrics to be kept
+    #   excludeMetrics: [<string>]          # Metrics to be dropped
+
+  kubeletResource:
+    enabled: true
+  
+hostMetrics:
+  enabled: true
+  collector: alloy-metrics
+  linuxHosts:
+    enabled: true
+  windowsHosts:
+    enabled: false
+
+clusterEvents:
+  enabled: true
+  collector: alloy-singleton
+  destinations: ["otlp-gateway"]
+
+nodeLogs:
+  enabled: false
+
+podLogsViaLoki:
+  enabled: false
+
+podLogsViaOpenTelemetry:
+  enabled: true
+  collector: alloy-logs
+
+podLogsViaKubernetesApi:
+  enabled: false
+
+podLogsObjects:
+  enabled: false
+
+integrations:
+  collector: alloy-metrics
+  istio:
+    instances:
+      - name: istio
+        # Ambient mode has no per-pod sidecars; only istiod metrics are scraped.
+        sidecarMetrics:
+          enabled: true
+          tuning:
+            includeMetrics:
+              - istio_request_duration_milliseconds_bucket
+              - istio_request_bytes_bucket
+              - istio_response_bytes_bucket
+        istiodMetrics:
+          enabled: true
+
+applicationObservability:
+  enabled: false
+
+autoInstrumentation:
+  enabled: false
+
+annotationAutodiscovery:
+  enabled: false
+
+prometheusOperatorObjects:
+  enabled: true
+  collector: alloy-metrics
+  # serviceMonitors:
+  #   namespaces:
+  #     - default
+  #     - my-app-ns
+  #   labelSelectors:
+  #     release: my-monitoring
+  
+profiling:
+  enabled: false
+
+profilesReceiver:
+  enabled: false
+
+selfReporting:
+  enabled: false
+
+alloy-operator:
+  nodeSelector:
+    node: system
+
+collectors:
+  alloy-metrics:
+    presets: [clustered, statefulset]
+    alloy:
+      stabilityLevel: experimental #public-preview
+    extraConfig: |
+      otelcol.storage.file "otlp_gateway_queue_storage" {
+        create_directory = true
+        directory = "/var/lib/otlp_gateway_queue_storage"
+      }
+    controller:
+      nodeSelector:
+        node: system
+
+  alloy-logs:
+    presets: [filesystem-log-reader, daemonset]
+    alloy:
+      stabilityLevel: experimental #public-preview
+    extraConfig: |
+      otelcol.storage.file "otlp_gateway_queue_storage" {
+        create_directory = true
+        directory = "/var/lib/otlp_gateway_queue_storage"
+      }
+
+  alloy-singleton: #evita daemonset para eventos de k8s, se necesita singleton
+    presets: [singleton]
+    alloy:
+      stabilityLevel: experimental
+    extraConfig: |
+      otelcol.storage.file "otlp_gateway_queue_storage" {
+        create_directory = true
+        directory = "/var/lib/otlp_gateway_queue_storage"
+      }
+    controller:
+      nodeSelector:
+        node: system
+
+telemetryServices:
+  kube-state-metrics:
+    deploy: true
+    nodeSelector:
+      node: system
+
+  opencost:
+    deploy: false
+    opencost:
+      exporter:
+        defaultClusterId: local
+    metricsSource: # luego, debe ser endpoint prometheus
+    node-selector:
+      node: system
+
+  node-exporter:
+    deploy: true
+
+  windows-exporter:
+    deploy: false

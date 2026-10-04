@@ -1,0 +1,221 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: o11y
+spec:
+  upgradeStrategy: automatic
+  mode: statefulset #deployment
+  imagePullPolicy: IfNotPresent
+  args:
+    feature-gates:  exporter.prometheusremotewritexporter.RetryOn429,exporter.prometheusremotewritexporter.EnableMultipleWorkers
+  replicas: 1
+  env:
+  - name: GRAFANA_CLOUD_PROMETHEUS_USER
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: prometheus-user
+  - name: GRAFANA_CLOUD_PROMETHEUS_TOKEN
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: prometheus-token
+  - name: PROMETHEUS_ENDPOINT
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: prometheus-endpoint
+  - name: GRAFANA_CLOUD_OTLP_USER
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: otlp-user
+  - name: GRAFANA_CLOUD_OTLP_TOKEN
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: otlp-token
+  - name: OTLP_ENDPOINT
+    valueFrom:
+        secretKeyRef:
+          name: to-grafana-plugins
+          key: otlp-endpoint
+
+  observability:
+    metrics:
+      enableMetrics: true
+
+  config:
+    connectors:
+      grafanacloud:
+        # https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/grafanacloudconnector
+        host_identifiers: ["host.name"]
+
+    extensions:
+      basicauth/grafanacloud-prometheus:
+        client_auth:
+          username: "${env:GRAFANA_CLOUD_PROMETHEUS_USER}"
+          password: "${env:GRAFANA_CLOUD_PROMETHEUS_TOKEN}"
+      basicauth/grafanacloud-otlp:
+        client_auth:
+          username: "${env:GRAFANA_CLOUD_OTLP_USER}"
+          password: "${env:GRAFANA_CLOUD_OTLP_TOKEN}"
+
+      pprof: {}
+      zpages: {}
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    
+    processors:
+      transform/metrics_cardinality:
+        error_mode: ignore
+        metric_statements:
+          - context: resource
+            statements:
+              - delete_key(attributes, "k8s.pod.uid")
+              - delete_key(attributes, "container.id")
+              - delete_key(attributes, "process.pid")
+          # - context: datapoint
+          #   statements:
+          #     - delete_key(attributes, "k8s.pod.uid")
+          #     - delete_key(attributes, "process.pid")
+              
+      interval:
+        interval: 60s
+
+      batch/metrics:
+        send_batch_size: 2000
+        # send_batch_max_size: 1000
+        timeout: 5s
+
+      batch/traces:
+        send_batch_size: 2000
+        send_batch_max_size: 3000
+        timeout: 5s
+
+      batch/logs:
+        send_batch_size: 2000
+        send_batch_max_size: 3000
+        timeout: 5s
+
+    exporters:
+      debug:
+        verbosity: detailed
+        use_internal_logger: false
+
+      prometheusremotewrite:
+        # endpoint: "http://prometheus.prometheus.svc.cluster.local:9090/api/v1/write"
+        endpoint: "${env:PROMETHEUS_ENDPOINT}"
+        auth:
+          authenticator: basicauth/grafanacloud-prometheus
+        send_metadata: false
+        add_metric_suffixes: false
+        max_batch_request_parallelism: 1
+        max_batch_size_bytes: 5000000
+        remote_write_queue:
+          enabled: true
+          num_consumers: 1
+          queue_size: 10000
+        resource_to_telemetry_conversion:
+          enabled: true
+        target_info:
+          enabled: false
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+      prometheusremotewrite/local:
+        endpoint: "http://prometheus-server.prometheus.svc.cluster.local/api/v1/write"
+        send_metadata: false
+        add_metric_suffixes: false
+        max_batch_request_parallelism: 1
+        max_batch_size_bytes: 5000000
+        remote_write_queue:
+          enabled: true
+          num_consumers: 1
+          queue_size: 10000
+        resource_to_telemetry_conversion:
+          enabled: true
+        target_info:
+          enabled: false
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+      otlphttp/grafanacloud:
+        # endpoint: http://loki.loki.svc.cluster.local:3100/otlp
+        endpoint: "${env:OTLP_ENDPOINT}"
+        auth:
+          authenticator: basicauth/grafanacloud-otlp
+        headers:
+          X-Scope-OrgID: "local"
+        # tls:
+        #   insecure: true
+        timeout: 30s
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 10000
+
+    service:
+      telemetry:
+        logs:
+          level: "info"
+        metrics:
+          level: detailed
+          readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: '0.0.0.0'
+                  port: 8888
+
+      extensions: [ basicauth/grafanacloud-prometheus, basicauth/grafanacloud-otlp, pprof, zpages ]
+
+      pipelines:
+        metrics:
+          receivers:
+          - otlp
+          processors:
+          - transform/metrics_cardinality 
+          - interval
+          - batch/metrics
+          exporters:
+          # - prometheusremotewrite
+          - prometheusremotewrite/local
+
+        metrics/grafanacloud:
+          receivers: 
+          - grafanacloud
+          processors:
+          - batch/metrics
+          exporters:
+          - otlphttp/grafanacloud
+
+        traces:
+          receivers: 
+          - otlp
+          processors: 
+          - batch/traces
+          exporters: 
+          - otlphttp/grafanacloud
+          - grafanacloud
+
+        logs:
+          receivers: 
+          - otlp
+          processors: 
+          - batch/logs
+          exporters: 
+          - otlphttp/grafanacloud

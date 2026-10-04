@@ -1,0 +1,49 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: auto-instrumentation
+  namespace: default
+spec:
+  env:
+  - name: OTEL_LOGS_EXPORTER
+    value: otlp
+  - name: OTEL_METRICS_EXPORTER
+    value: otlp
+  - name: OTEL_TRACES_EXPORTER
+    value: otlp
+  - name: OTEL_METRIC_EXPORT_INTERVAL
+    value: "60000"
+  - name: OTEL_BSP_EXPORT_TIMEOUT
+    value: "30000"
+  - name: OTEL_JAVAAGENT_DEBUG
+    value: "false"
+  - name: OTEL_INSTRUMENTATION_HTTP_SERVER_CAPTURE_REQUEST_HEADERS
+    value: "request-id"
+  - name: OTEL_INSTRUMENTATION_HTTP_SERVER_CAPTURE_RESPONSE_HEADERS
+    value: "request-id"
+  - name: OTEL_INSTRUMENTATION_MICROMETER_ENABLED
+    value: "false"
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: http/protobuf #grpc #http/json
+
+  exporter:
+    endpoint: http://otel-collector.o11y.svc.cluster.local:4318
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"
+
+  java: # 1.x.y
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:2.27.0
+
+  dotnet:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-dotnet:1.14.1
+
+  go:
+    env:
+      - name: OTEL_GO_AUTO_INCLUDE_DB_STATEMENT
+        value: 'true'
+      - name: OTEL_GO_AUTO_PARSE_DB_STATEMENT
+        value: 'true'

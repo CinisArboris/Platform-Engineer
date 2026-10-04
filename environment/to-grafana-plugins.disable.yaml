@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: to-grafana-plugins
+  namespace: olly
+type: Opaque
+stringData:
+  prometheus-user: ''
+  prometheus-token: ''
+  prometheus-endpoint: ''
+
+  otlp-user: ''
+  otlp-token: ''
+  otlp-endpoint: ''
