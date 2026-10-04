@@ -1,0 +1,39 @@
+replicaCount: 1
+
+## Create the provided Roles and RoleBindings
+##
+role:
+  create: true
+
+## Create the provided ClusterRoles and ClusterRoleBindings
+##
+clusterRole:
+  create: true
+
+nodeSelector:
+  node: system
+
+manager:
+  image:
+    repository: ghcr.io/open-telemetry/opentelemetry-operator/opentelemetry-operator
+  collectorImage:
+    repository:  otel/opentelemetry-collector-contrib #ghcr.io/wjma90/otelcol-distributions/opentelemetry-collector-main-k8s # otel/opentelemetry-collector-contrib
+    # tag: 1.1.0
+  serviceMonitor:
+    enabled: false
+  autoInstrumentation:
+    go: # ebpf
+      enabled: true
+
+admissionWebhooks:
+  pods:
+    failurePolicy: Ignore #Fail #Ignore
+  namespaceSelector:
+    matchExpressions:
+       - key: kubernetes.io/metadata.name
+         operator: NotIn
+         values:
+         - kube-system
+         - o11y
+         - istio-operator
+         - istio-system
