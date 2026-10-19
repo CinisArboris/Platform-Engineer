@@ -1,0 +1,85 @@
+services:
+  gitea:
+    image: gitea/gitea:1.26.2
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      TZ: America/Lima
+      GITEA__server__DOMAIN: localhost
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__server__ROOT_URL: http://localhost:3000/
+      GITEA__server__SSH_DOMAIN: localhost
+      GITEA__server__SSH_PORT: "2222"
+      GITEA__service__DISABLE_REGISTRATION: "false"
+      GITEA__actions__ENABLED: "true"
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    networks:
+      gitea-network:
+      k3d-local:
+        aliases:
+          - gitea
+          - server.local
+    volumes:
+      - gitea-data:/data
+
+  runner:
+    image: gitea/act_runner:0.6
+    container_name: gitea-runner
+    profiles:
+      - runner
+    restart: unless-stopped
+    depends_on:
+      - gitea
+    networks:
+      - gitea-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./runner-data:/data
+      - ./runner-config.yaml:/config.yaml:ro
+      - runner-actions-cache:/root/.cache/act
+    environment:
+      CONFIG_FILE: /config.yaml
+      GITEA_INSTANCE_URL: http://gitea:3000
+      GITEA_RUNNER_NAME: local-docker-runner
+
+  runner-register:
+    image: gitea/act_runner:0.6
+    profiles:
+      - runner
+    depends_on:
+      - gitea
+    entrypoint: act_runner
+    working_dir: /data
+    command:
+      - register
+      - --no-interactive
+      - --instance
+      - http://gitea:3000
+      - --token
+      - ${GITEA_RUNNER_REGISTRATION_TOKEN:-}
+      - --name
+      - local-docker-runner
+      - --labels
+      - ubuntu-latest:docker://docker.gitea.com/runner-images:ubuntu-latest,ubuntu-22.04:docker://docker.gitea.com/runner-images:ubuntu-22.04
+      - --config
+      - /config.yaml
+    networks:
+      - gitea-network
+    volumes:
+      - ./runner-data:/data
+      - ./runner-config.yaml:/config.yaml:ro
+
+networks:
+  gitea-network:
+    name: gitea-local
+  k3d-local:
+    external: true
+    name: k3d-local
+
+volumes:
+  gitea-data:
+  runner-actions-cache:

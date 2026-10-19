@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: to-grafana-plugins
-  namespace: olly
+  namespace: o11y
 type: Opaque
 stringData:
   prometheus-user: ''
